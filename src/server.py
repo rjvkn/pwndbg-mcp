@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 
 from mcp.server.fastmcp import FastMCP
@@ -21,29 +22,32 @@ GDB_PATH = os.environ.get("PWNDBG_MCP_GDB_PATH", "gdb")
 # ---------------------------------------------------------------------------
 
 _controller: AsyncGdbController | None = None
+_controller_lock = asyncio.Lock()
 
 
 async def get_controller() -> AsyncGdbController:
     """Get or create the GDB controller singleton, starting GDB if needed."""
     global _controller
-    if _controller is None:
-        _controller = AsyncGdbController(gdb_path=GDB_PATH)
-        await _controller.start()
-    elif _controller.state == GdbState.DEAD:
-        await _controller.close()
-        _controller = AsyncGdbController(gdb_path=GDB_PATH)
-        await _controller.start()
-    return _controller
+    async with _controller_lock:
+        if _controller is None:
+            _controller = AsyncGdbController(gdb_path=GDB_PATH)
+            await _controller.start()
+        elif _controller.state == GdbState.DEAD:
+            await _controller.close()
+            _controller = AsyncGdbController(gdb_path=GDB_PATH)
+            await _controller.start()
+        return _controller
 
 
 async def reset_controller() -> str:
     """Kill and restart the GDB controller."""
     global _controller
-    if _controller is not None:
-        await _controller.close()
-        _controller = None
-    _controller = AsyncGdbController(gdb_path=GDB_PATH)
-    await _controller.start()
+    async with _controller_lock:
+        if _controller is not None:
+            await _controller.close()
+            _controller = None
+        _controller = AsyncGdbController(gdb_path=GDB_PATH)
+        await _controller.start()
     return "GDB restarted."
 
 

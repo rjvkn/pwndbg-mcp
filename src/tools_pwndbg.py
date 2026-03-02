@@ -49,7 +49,8 @@ def register_pwndbg_tools(mcp: FastMCP, get_controller: ControllerGetter) -> Non
             parts = ["telescope"]
             if address:
                 parts.append(address)
-            parts.append(str(count))
+                parts.append(str(count))
+
             responses = await gdb.execute_console(" ".join(parts))
             return format_console_output(responses) or "No telescope output."
         except Exception as e:
@@ -83,7 +84,8 @@ def register_pwndbg_tools(mcp: FastMCP, get_controller: ControllerGetter) -> Non
             parts = ["hexdump"]
             if address:
                 parts.append(address)
-            parts.append(str(count))
+                parts.append(str(count))
+
             responses = await gdb.execute_console(" ".join(parts))
             return format_console_output(responses) or "No hexdump output."
         except Exception as e:
@@ -499,7 +501,7 @@ def register_pwndbg_tools(mcp: FastMCP, get_controller: ControllerGetter) -> Non
         """
         try:
             gdb = await get_controller()
-            responses = await gdb.execute_console(f'patch ${address} "{instruction}"')
+            responses = await gdb.execute_console(f'patch {address} "{instruction}"')
             return format_console_output(responses) or f"Patched at {address}."
         except Exception as e:
             return format_error(e)
@@ -521,7 +523,8 @@ def register_pwndbg_tools(mcp: FastMCP, get_controller: ControllerGetter) -> Non
             parts = ["nearpc"]
             if address:
                 parts.append(address)
-            parts.append(str(count))
+                parts.append(str(count))
+
             responses = await gdb.execute_console(" ".join(parts))
             return format_console_output(responses) or "No nearpc output."
         except Exception as e:

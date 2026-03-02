@@ -49,7 +49,7 @@ def register_process_tools(mcp: FastMCP, get_controller: ControllerGetter) -> No
             expression: Python expression that evaluates to bytes.
         """
         try:
-            # Build a restricted namespace with pwntools packing utilities
+            # Build namespace with pwntools packing utilities (builtins included for bytes/int/etc.)
             ns: dict[str, object] = {"__builtins__": __builtins__}
             try:
                 from pwnlib.util.packing import p8, p16, p32, p64, flat  # type: ignore[import-untyped]
