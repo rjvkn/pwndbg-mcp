@@ -19,7 +19,7 @@
 
 ```bash
 git clone https://github.com/echo8134/pwndbg-mcp.git && cd pwndbg-mcp
-pwndbg-mcp install
+uv run pwndbg-mcp install
 ```
 
 This installs dependencies and registers the server in `~/.claude.json`. Restart Claude Code to pick it up.

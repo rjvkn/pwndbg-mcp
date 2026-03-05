@@ -36,12 +36,12 @@ def format_responses(responses: list[dict[str, object]]) -> str:
 def format_console_output(responses: list[dict[str, object]]) -> str:
     """Format output from console commands (pwndbg, etc.).
 
-    Collects both 'console' and 'log' stream output from GDB/MI responses.
-    Some pwndbg commands (heap tools) emit output via the log stream.
+    Collects console, log, target, and output stream records from GDB/MI responses.
+    Different pwndbg commands may emit output via different streams.
     """
     lines: list[str] = []
     for resp in responses:
-        if resp.get("type") in ("console", "log"):
+        if resp.get("type") in ("console", "log", "output", "target"):
             payload = resp.get("payload")
             if payload is not None:
                 lines.append(strip_ansi(str(payload)).rstrip())
