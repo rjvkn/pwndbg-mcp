@@ -125,6 +125,9 @@ class AsyncGdbController:
         )
         self.state = GdbState.STOPPED
 
+        # Enable async MI mode so commands can be sent while target is running
+        await self.execute("-gdb-set mi-async on")
+
     async def close(self) -> None:
         """Shut down GDB and clean up resources."""
         if self._controller is not None:
@@ -212,12 +215,31 @@ class AsyncGdbController:
         return responses
 
     async def execute_console(self, command: str, timeout_sec: float = 10) -> list[dict[str, Any]]:
-        """Execute a console command (pwndbg, plain GDB commands) via MI.
+        """Execute a console/CLI command (pwndbg, plain GDB commands) via MI.
 
-        Wraps the command in: -interpreter-exec console "command"
+        Sends the command directly — pygdbmi and GDB/MI handle CLI commands
+        natively (no -interpreter-exec wrapper needed).
         """
-        escaped = command.replace("\\", "\\\\").replace('"', '\\"')
-        return await self.execute(f'-interpreter-exec console "{escaped}"', timeout_sec)
+        return await self.execute(command, timeout_sec)
+
+    async def drain_responses(self, timeout_sec: float = 3.0, max_rounds: int = 15) -> list[dict[str, Any]]:
+        """Poll for pending GDB responses multiple times to catch async notifications.
+
+        Useful after execution commands (-exec-run, -exec-interrupt) where the
+        *stopped notification arrives asynchronously after the ^running/^done result.
+        """
+        all_responses: list[dict[str, Any]] = []
+        per_round = timeout_sec / max_rounds
+        for _ in range(max_rounds):
+            responses = await self.get_responses(timeout_sec=per_round)
+            if not responses:
+                break
+            all_responses.extend(responses)
+            # If we got a stopped notification, we're done waiting
+            if any(r.get("type") == "notify" and r.get("message") in ("stopped", "thread-group-exited")
+                   for r in responses):
+                break
+        return all_responses
 
     # -----------------------------------------------------------------------
     # Process I/O via PTY
@@ -275,19 +297,20 @@ class AsyncGdbController:
         if self._pty_master < 0:
             raise RuntimeError("No PTY available.")
 
-        # Temporarily restore cooked mode so control char is interpreted
-        if self._orig_attrs is not None:
-            termios.tcsetattr(self._pty_slave, termios.TCSANOW, self._orig_attrs)
-
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor,
-            lambda: os.write(self._pty_master, char),
-        )
 
-        # Restore raw mode
-        if self._pty_slave >= 0:
-            tty.setraw(self._pty_slave)
+        def _send_ctrl() -> None:
+            # Temporarily restore cooked mode so control char is interpreted
+            try:
+                if self._orig_attrs is not None:
+                    termios.tcsetattr(self._pty_slave, termios.TCSANOW, self._orig_attrs)
+                os.write(self._pty_master, char)
+            finally:
+                # Always restore raw mode
+                if self._pty_slave >= 0:
+                    tty.setraw(self._pty_slave)
+
+        await loop.run_in_executor(self._executor, _send_ctrl)
 
 
 # ---------------------------------------------------------------------------

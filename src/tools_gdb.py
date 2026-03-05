@@ -104,6 +104,10 @@ def register_gdb_tools(mcp: FastMCP, get_controller: ControllerGetter) -> None:
                 await gdb.execute_console(f"set args {args}")
             cmd = "-exec-run --start" if stop_at_main else "-exec-run"
             responses = await gdb.execute(cmd)
+            if stop_at_main:
+                # Drain to catch the *stopped notification when main() is hit
+                drain = await gdb.drain_responses(timeout_sec=5.0)
+                responses.extend(drain)
             return format_responses(responses) or "Program started."
         except Exception as e:
             return format_error(e)
@@ -195,6 +199,9 @@ def register_gdb_tools(mcp: FastMCP, get_controller: ControllerGetter) -> None:
         try:
             gdb = await get_controller()
             responses = await gdb.execute("-exec-interrupt")
+            # Drain to catch the *stopped notification confirming the interrupt
+            drain = await gdb.drain_responses(timeout_sec=3.0)
+            responses.extend(drain)
             return format_responses(responses) or "Interrupted."
         except Exception as e:
             return format_error(e)
