@@ -220,6 +220,60 @@ def register_gdb_tools(mcp: FastMCP, get_controller: ControllerGetter) -> None:
     # Breakpoints
     # ===================================================================
 
+    async def _check_insn_boundary(
+        gdb: AsyncGdbController, location: str
+    ) -> str:
+        """Check if a raw *0x... address lands on an instruction boundary.
+
+        Uses -data-disassemble to get instruction starts in a small window
+        around the target address. If the address doesn't match any
+        instruction start, returns a warning string. Otherwise returns "".
+
+        Note: x86-64 has variable-length instructions (up to 15 bytes).
+        If the start of the disassembly window falls mid-instruction,
+        GDB's linear-sweep disassembler may re-sync incorrectly, which
+        could produce a false negative. This is a best-effort heuristic.
+        """
+        try:
+            addr_str = location.removeprefix("*")
+            addr = int(addr_str, 16)
+            # Disassemble a window around the target: 32 bytes before to
+            # 16 bytes after. The larger backward window reduces the chance
+            # of starting mid-instruction on variable-length ISAs.
+            start = max(0, addr - 32)
+            end = addr + 16
+            responses = await gdb.execute(
+                f"-data-disassemble -s {start:#x} -e {end:#x} -- 0"
+            )
+            # Parse instruction addresses from the structured response.
+            insn_addrs: set[int] = set()
+            for resp in responses:
+                payload = resp.get("payload")
+                if not isinstance(payload, dict):
+                    continue
+                asm_insns = payload.get("asm_insns", [])
+                for insn in asm_insns:
+                    insn_addr = insn.get("address")
+                    if insn_addr is not None:
+                        insn_addrs.add(int(insn_addr, 0))
+            if insn_addrs and addr not in insn_addrs:
+                # Find the instruction that contains this address
+                before = sorted(a for a in insn_addrs if a <= addr)
+                containing = hex(before[-1]) if before else "unknown"
+                return (
+                    f"Address {addr:#x} is NOT at an instruction boundary. "
+                    f"It falls inside the instruction at {containing}. "
+                    f"Setting a breakpoint here will corrupt that instruction's "
+                    f"encoding (INT3 overwrites a mid-instruction byte). "
+                    f"Nearby valid addresses: "
+                    f"{', '.join(hex(a) for a in sorted(insn_addrs) if abs(a - addr) <= 16)}"
+                )
+        except Exception:
+            # If disassembly fails (no binary loaded, unmapped address),
+            # skip validation silently and let GDB handle it.
+            pass
+        return ""
+
     @mcp.tool()
     async def set_breakpoint(
         location: str,
@@ -237,6 +291,19 @@ def register_gdb_tools(mcp: FastMCP, get_controller: ControllerGetter) -> None:
         """
         try:
             gdb = await get_controller()
+
+            # Validate raw-address software breakpoints land on instruction
+            # boundaries. A breakpoint in the middle of a multi-byte
+            # instruction (e.g. inside a call's displacement) corrupts that
+            # instruction when GDB writes the INT3 byte, causing silent
+            # misbehavior or crashes. Hardware breakpoints use debug
+            # registers and don't modify instructions, so skip the check.
+            warning = ""
+            if not hardware and (
+                location.startswith("*0x") or location.startswith("*0X")
+            ):
+                warning = await _check_insn_boundary(gdb, location)
+
             parts = ["-break-insert"]
             if temporary:
                 parts.append("-t")
@@ -246,7 +313,10 @@ def register_gdb_tools(mcp: FastMCP, get_controller: ControllerGetter) -> None:
                 parts.extend(["-c", f'"{condition}"'])
             parts.append(location)
             responses = await gdb.execute(" ".join(parts))
-            return format_responses(responses) or f"Breakpoint set at {location}"
+            result = format_responses(responses) or f"Breakpoint set at {location}"
+            if warning:
+                result = f"WARNING: {warning}\n{result}"
+            return result
         except Exception as e:
             return format_error(e)
 
