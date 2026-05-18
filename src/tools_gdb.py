@@ -590,7 +590,9 @@ def register_gdb_tools(mcp: FastMCP, get_controller: ControllerGetter) -> None:
         """Execute any raw GDB/MI or console command.
 
         Use this for any GDB functionality not covered by other tools.
-        Prefix with '-' for MI commands, otherwise runs as console command.
+        - Prefix with '-' for raw MI commands (e.g. '-break-insert main').
+        - Use plain text for console/pwndbg commands (e.g. 'vmmap').
+        WARNING: Do NOT wrap console commands in '-interpreter-exec console'; the tool does this automatically.
 
         Args:
             command: The GDB command to execute.

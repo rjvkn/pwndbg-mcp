@@ -14,7 +14,6 @@ def strip_ansi(text: str) -> str:
 
 def format_responses(responses: list[dict[str, object]]) -> str:
     """Extract and format GDB/MI response payloads into clean text.
-
     Collects 'console' stream output and result payloads from pygdbmi responses.
     """
     lines: list[str] = []
@@ -27,7 +26,14 @@ def format_responses(responses: list[dict[str, object]]) -> str:
             lines.append(strip_ansi(str(payload)).rstrip())
         elif msg_type == "result":
             if isinstance(payload, dict):
-                lines.append(str(payload))
+                # GDB/MI results often have a 'value' key for the actual data
+                value = payload.get("value")
+                if value is not None:
+                    lines.append(strip_ansi(str(value)).rstrip())
+                else:
+                    # Fallback for other result types, skip 'done'
+                    if payload != {"value": "done"}:
+                        lines.append(str(payload))
             elif isinstance(payload, str) and payload != "done":
                 lines.append(strip_ansi(payload).rstrip())
     return "\n".join(lines)
@@ -35,7 +41,6 @@ def format_responses(responses: list[dict[str, object]]) -> str:
 
 def format_console_output(responses: list[dict[str, object]]) -> str:
     """Format output from console commands (pwndbg, etc.).
-
     Collects console, log, target, and output stream records from GDB/MI responses.
     Different pwndbg commands may emit output via different streams.
     """
